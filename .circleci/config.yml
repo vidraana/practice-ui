@@ -1,0 +1,156 @@
+
+version: 2.1
+
+# --------------------------------------------------
+# Reusable commands
+# --------------------------------------------------
+
+commands:
+  install-dependencies:
+    description: Install npm dependencies using the lockfile
+    steps:
+      - checkout
+
+      - restore_cache:
+          keys:
+            - npm-v1-{{ checksum "package-lock.json" }}
+            - npm-v1-
+
+      - run:
+          name: Install dependencies
+          command: npm ci
+
+      - save_cache:
+          key: npm-v1-{{ checksum "package-lock.json" }}
+          paths:
+            - ~/.npm
+
+# --------------------------------------------------
+# Jobs
+# --------------------------------------------------
+
+jobs:
+  lint:
+    docker:
+      - image: cimg/node:24.15
+
+    steps:
+      - install-dependencies
+
+      - run:
+          name: ESLint
+          command: npm run lint
+
+  format:
+    docker:
+      - image: cimg/node:24.15
+
+    steps:
+      - install-dependencies
+
+      - run:
+          name: Prettier
+          command: npm run format:check
+
+  unit-tests:
+    docker:
+      - image: cimg/node:24.15
+
+    environment:
+      CI: "true"
+
+    steps:
+      - install-dependencies
+
+      - run:
+          name: Vitest unit tests with coverage
+          command: npm run test:coverage
+
+      - when:
+          condition:
+            equal: [always, always]
+          steps:
+            - store_artifacts:
+                path: coverage
+                destination: coverage
+
+  security-audit:
+    docker:
+      - image: cimg/node:24.15
+
+    steps:
+      - install-dependencies
+
+      - run:
+          name: npm dependency security audit
+          command: npm run audit
+
+  build:
+    docker:
+      - image: cimg/node:24.15
+
+    steps:
+      - install-dependencies
+
+      - run:
+          name: Angular production build
+          command: npm run build
+
+      - store_artifacts:
+          path: dist
+          destination: production-build
+
+  e2e-tests:
+    docker:
+      - image: cimg/node:24.15
+
+    environment:
+      CI: "true"
+
+    steps:
+      - install-dependencies
+
+      - run:
+          name: Install Chromium system dependencies
+          command: sudo npx playwright install-deps chromium
+
+      - run:
+          name: Install Playwright Chromium
+          command: npx playwright install chromium
+
+      - run:
+          name: Run Playwright E2E tests
+          command: npm run e2e
+
+      - when:
+          condition:
+            equal: [always, always]
+          steps:
+            - store_artifacts:
+                path: playwright-report
+                destination: playwright-report
+
+            - store_artifacts:
+                path: test-results
+                destination: test-results
+
+# --------------------------------------------------
+# Workflow
+# --------------------------------------------------
+
+workflows:
+  angular-ci:
+    jobs:
+      - lint
+
+      - format
+
+      - unit-tests
+
+      - security-audit
+
+      - build
+
+      - e2e-tests:
+          requires:
+            - build
